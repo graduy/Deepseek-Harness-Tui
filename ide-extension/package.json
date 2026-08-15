@@ -1,0 +1,19 @@
+{
+  "name": "dsh-ide-context",
+  "displayName": "DSH IDE Context",
+  "description": "Expose the active editor file and workspace folder to dsh-tui running in the integrated terminal.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {}
+}
