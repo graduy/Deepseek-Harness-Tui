@@ -50,6 +50,8 @@ export interface ResumeControllerDeps extends ChatChannelDeps, ChannelNotice {
 export interface ResumeController {
   /** Open the searchable session selector, scoped to this workspace until the user widens it. */
   showResume(): void
+  /** Open the `/agent` picker: past sessions plus a leading "new conversation" row. */
+  showAgentSwitch(): void
   /** Hand off to a fresh conversation in the current workspace (`/agent new`). */
   newSession(): void
 }
@@ -320,6 +322,102 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
     }
   }
 
+  /**
+   * Open the full-viewport session picker with an optional leading "new
+   * conversation" row (the `/agent` variant) and a title label.
+   */
+  const openPicker = (
+    newOption: { label: string; action: () => void } | undefined,
+    titleLabel: string,
+  ): void => {
+    if (agent.status !== 'idle') {
+      deps.appendNotice('Switching conversations requires the current turn to finish or be cancelled first.', 'warning')
+      return
+    }
+    const listQuery = sessionQuery()
+    if (listQuery === undefined) {
+      deps.appendNotice('Switching conversations is not available: session query is not mounted.', 'warning')
+      return
+    }
+    const scan = ++resumeScan
+    void resumeOverlay?.close()
+    // The picker opens before the scan settles so the terminal stops feeding
+    // the editor immediately; a queued activation (the closing predecessor
+    // still holds the slot) receives an already-scanned set through
+    // `scanned` instead of a loading placeholder.
+    let picker: ResumePicker | undefined
+    let scanned: ResumeCandidate[] | undefined
+    const session = overlayManager.open({
+      create: (host) => {
+        picker = new ResumePicker(
+          scanned,
+          resolved.maxResumeOptions,
+          workspaceLabel(agent.session.header.cwd),
+          () => host.viewport.rows,
+          palette,
+          (candidate) => { void handoffResume(candidate, session) },
+          () => { void session.close() },
+          newOption,
+          titleLabel,
+        )
+        return picker
+      },
+      options: {
+        width: '100%',
+        maxHeight: '100%',
+        anchor: 'top-left',
+        margin: 0,
+      },
+    })
+    resumeOverlay = session
+    // Closing the picker — Escape, supersession, disposal — aborts the scan:
+    // the borrowed-log pass over a large store must not outlive its overlay.
+    const scanAbort = new AbortController()
+    void session.closed.then(() => {
+      scanAbort.abort()
+      /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
+      if (resumeOverlay === session) resumeOverlay = undefined
+    })
+    deps.requestRender()
+    /** Whether this scan's overlay, session generation, or TUI is gone. */
+    const scanStale = (): boolean =>
+      deps.isDisposed() || scan !== resumeScan || scanAbort.signal.aborted
+    const scanCandidates = async (): Promise<void> => {
+      // Every workspace in the store is listed; the picker owns the
+      // current-workspace/all-workspaces scope split over the whole set.
+      const records = await listQuery.listSessions(scanAbort.signal)
+      if (scanStale()) return
+      // Rows need only metadata, an mtime, and a title — resolved without
+      // whole-log reads when the projection cache is mounted. A corrupt
+      // neighbor degrades to one disabled row.
+      const [titles, activity] = await Promise.all([
+        resolveTitles(listQuery, records, scanAbort.signal),
+        Promise.all(records.map(record => lastActivityAt(record))),
+      ])
+      const candidates = records.map((record, index) => {
+        const resolution = titles[index] as TitleResolution
+        return 'failure' in resolution
+          ? unreadableCandidate(record, activity[index], resolution.failure)
+          : summarize(record, resolution.title, activity[index])
+      })
+      candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
+        || a.record.header.id.localeCompare(b.record.header.id))
+      if (scanStale()) return
+      scanned = candidates
+      picker?.setCandidates(candidates)
+      deps.requestRender()
+    }
+    // One catch covers listing, titles, and mtimes, so a scan failure
+    // cannot strand the overlay on its loading placeholder; an aborted
+    // scan's rejection stays silent because the user already dismissed the
+    // picker.
+    void scanCandidates().catch((error: unknown) => {
+      if (scanStale()) return
+      void session.close()
+      deps.appendNotice(`Session scan failed: ${errorChain(error)}`, 'error')
+    })
+  }
+
   return {
     newSession(): void {
       if (resumeInFlight) return
@@ -330,90 +428,13 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       void newSessionHandoff()
     },
     showResume(): void {
-      if (agent.status !== 'idle') {
-        deps.appendNotice('Resume requires the current turn to finish or be cancelled first.', 'warning')
-        return
-      }
-      const listQuery = sessionQuery()
-      if (listQuery === undefined) {
-        deps.appendNotice('Resume is not available: session query is not mounted.', 'warning')
-        return
-      }
-      const scan = ++resumeScan
-      void resumeOverlay?.close()
-      // The picker opens before the scan settles so the terminal stops feeding
-      // the editor immediately; a queued activation (the closing predecessor
-      // still holds the slot) receives an already-scanned set through
-      // `scanned` instead of a loading placeholder.
-      let picker: ResumePicker | undefined
-      let scanned: ResumeCandidate[] | undefined
-      const session = overlayManager.open({
-        create: (host) => {
-          picker = new ResumePicker(
-            scanned,
-            resolved.maxResumeOptions,
-            workspaceLabel(agent.session.header.cwd),
-            () => host.viewport.rows,
-            palette,
-            (candidate) => { void handoffResume(candidate, session) },
-            () => { void session.close() },
-          )
-          return picker
-        },
-        options: {
-          width: '100%',
-          maxHeight: '100%',
-          anchor: 'top-left',
-          margin: 0,
-        },
-      })
-      resumeOverlay = session
-      // Closing the picker — Escape, supersession, disposal — aborts the scan:
-      // the borrowed-log pass over a large store must not outlive its overlay.
-      const scanAbort = new AbortController()
-      void session.closed.then(() => {
-        scanAbort.abort()
-        /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
-        if (resumeOverlay === session) resumeOverlay = undefined
-      })
-      deps.requestRender()
-      /** Whether this scan's overlay, session generation, or TUI is gone. */
-      const scanStale = (): boolean =>
-        deps.isDisposed() || scan !== resumeScan || scanAbort.signal.aborted
-      const scanCandidates = async (): Promise<void> => {
-        // Every workspace in the store is listed; the picker owns the
-        // current-workspace/all-workspaces scope split over the whole set.
-        const records = await listQuery.listSessions(scanAbort.signal)
-        if (scanStale()) return
-        // Rows need only metadata, an mtime, and a title — resolved without
-        // whole-log reads when the projection cache is mounted. A corrupt
-        // neighbor degrades to one disabled row.
-        const [titles, activity] = await Promise.all([
-          resolveTitles(listQuery, records, scanAbort.signal),
-          Promise.all(records.map(record => lastActivityAt(record))),
-        ])
-        const candidates = records.map((record, index) => {
-          const resolution = titles[index] as TitleResolution
-          return 'failure' in resolution
-            ? unreadableCandidate(record, activity[index], resolution.failure)
-            : summarize(record, resolution.title, activity[index])
-        })
-        candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
-          || a.record.header.id.localeCompare(b.record.header.id))
-        if (scanStale()) return
-        scanned = candidates
-        picker?.setCandidates(candidates)
-        deps.requestRender()
-      }
-      // One catch covers listing, titles, and mtimes, so a scan failure
-      // cannot strand the overlay on its loading placeholder; an aborted
-      // scan's rejection stays silent because the user already dismissed the
-      // picker.
-      void scanCandidates().catch((error: unknown) => {
-        if (scanStale()) return
-        void session.close()
-        deps.appendNotice(`Resume session scan failed: ${errorChain(error)}`, 'error')
-      })
+      openPicker(undefined, 'Resume session')
+    },
+    showAgentSwitch(): void {
+      openPicker(
+        { label: '＋ New conversation', action: () => { void newSessionHandoff() } },
+        'Switch conversation',
+      )
     },
   }
 }

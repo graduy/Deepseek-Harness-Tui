@@ -586,8 +586,15 @@ export class ResumePicker implements Component, Focusable {
     private readonly palette: Palette,
     private readonly done: (candidate: ResumeCandidate) => void,
     private readonly cancel: () => void,
+    private readonly newOption?: { label: string; action: () => void },
+    private readonly titleLabel: string = 'Resume session',
   ) {
     this.candidates = candidates
+  }
+
+  /** Whether a leading "new conversation" row is present (the `/agent` picker). */
+  private get hasNew(): boolean {
+    return this.newOption !== undefined
   }
 
   invalidate(): void {
@@ -625,11 +632,27 @@ export class ResumePicker implements Component, Focusable {
       || (this.scope === 'all' && candidate.workspaceLabel.toLocaleLowerCase().includes(query)))
   }
 
+  /** Selectable row count: the leading "new" row (when present) plus filtered candidates. */
+  private rowCount(): number {
+    return (this.hasNew ? 1 : 0) + this.filtered().length
+  }
+
+  /** The selectable row at `index`: the "new" marker or a candidate, or `undefined`. */
+  private rowAt(index: number): ResumeCandidate | 'new' | undefined {
+    if (this.hasNew) {
+      if (index === 0) return 'new'
+      return this.filtered()[index - 1]
+    }
+    return this.filtered()[index]
+  }
+
   private visibleCandidateCount(): number {
     // The all-workspaces scope adds a per-row workspace line, so a row costs
     // one more terminal row there than in the single-workspace scope.
     const rowHeight = this.scope === 'all' ? 4 : 3
-    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / rowHeight))
+    // The leading "new" row (when present) costs one extra terminal row.
+    const chrome = 13 + (this.hasNew ? 1 : 0)
+    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - chrome) / rowHeight))
     return Math.min(this.maxVisible, candidateBudget)
   }
 
@@ -661,7 +684,7 @@ export class ResumePicker implements Component, Focusable {
 
   handleInput(data: string): void {
     if (this.handleBracketedPaste(data)) return
-    const filtered = this.filtered()
+    const total = this.rowCount()
     if (matchesKey(data, Key.ctrl('c'))) {
       this.cancel()
       return
@@ -674,29 +697,25 @@ export class ResumePicker implements Component, Focusable {
         this.error = ''
       }
     } else if (matchesKey(data, Key.up)) {
-      this.selectedIndex = filtered.length === 0
-        ? 0
-        : (this.selectedIndex + filtered.length - 1) % filtered.length
+      this.selectedIndex = total === 0 ? 0 : (this.selectedIndex + total - 1) % total
     } else if (matchesKey(data, Key.down)) {
-      this.selectedIndex = filtered.length === 0 ? 0 : (this.selectedIndex + 1) % filtered.length
+      this.selectedIndex = total === 0 ? 0 : (this.selectedIndex + 1) % total
     } else if (matchesKey(data, Key.pageUp)) {
       this.selectedIndex = Math.max(0, this.selectedIndex - this.visibleCandidateCount())
     } else if (matchesKey(data, Key.pageDown)) {
-      this.selectedIndex = Math.min(
-        Math.max(0, filtered.length - 1),
-        this.selectedIndex + this.visibleCandidateCount(),
-      )
+      this.selectedIndex = Math.min(Math.max(0, total - 1), this.selectedIndex + this.visibleCandidateCount())
     } else if (matchesKey(data, Key.tab)) {
       this.scope = this.scope === 'workspace' ? 'all' : 'workspace'
       this.search.setValue('')
       this.selectedIndex = 0
       this.error = ''
     } else if (matchesKey(data, Key.enter)) {
-      const selected = filtered[this.selectedIndex]
+      const row = this.rowAt(this.selectedIndex)
       if (this.candidates === undefined) this.error = 'Sessions are still loading.'
-      else if (selected === undefined) this.error = 'No session matches this search.'
-      else if (selected.disabledReason !== undefined) this.error = selected.disabledReason
-      else this.done(selected)
+      else if (row === undefined) this.error = 'No session matches this search.'
+      else if (row === 'new') this.newOption?.action()
+      else if (row.disabledReason !== undefined) this.error = row.disabledReason
+      else this.done(row)
     } else {
       const previous = this.search.getValue()
       this.search.focused = this.focused
@@ -732,12 +751,14 @@ export class ResumePicker implements Component, Focusable {
     const contentWidth = Math.max(1, width - horizontalPadding * 2)
     const indent = ' '.repeat(horizontalPadding)
     const filtered = this.filtered()
-    if (this.selectedIndex >= filtered.length) this.selectedIndex = Math.max(0, filtered.length - 1)
-    const selected = filtered[this.selectedIndex]
-    const position = selected === undefined ? 0 : this.selectedIndex + 1
+    const total = this.rowCount()
+    const newOffset = this.hasNew ? 1 : 0
+    if (this.selectedIndex >= total) this.selectedIndex = Math.max(0, total - 1)
+    const candidateSelectedIndex = this.selectedIndex - newOffset
+    const position = total === 0 ? 0 : this.selectedIndex + 1
     const title = this.candidates === undefined
-      ? 'Resume session'
-      : `Resume session (${position} of ${filtered.length})`
+      ? this.titleLabel
+      : `${this.titleLabel} (${position} of ${total})`
     const lines: string[] = [
       '',
       `${indent}${this.palette.bold(this.palette.accent(title))}`,
@@ -758,16 +779,21 @@ export class ResumePicker implements Component, Focusable {
 
     const visibleCount = this.visibleCandidateCount()
     const start = Math.max(0, Math.min(
-      this.selectedIndex - Math.floor(visibleCount / 2),
+      candidateSelectedIndex - Math.floor(visibleCount / 2),
       filtered.length - visibleCount,
     ))
     const end = Math.min(filtered.length, start + visibleCount)
     const push = (line: string): void => {
       lines.push(`${indent}${truncateToWidth(line, contentWidth, '…')}`)
     }
+    if (this.hasNew) {
+      const active = this.selectedIndex === 0
+      const lead = `${active ? '❯' : ' '} ${displayText(this.newOption?.label ?? 'New conversation')}`
+      push(active ? this.palette.bold(this.palette.accent(lead)) : lead)
+    }
     for (let index = start; index < end; index += 1) {
       const candidate = filtered[index] as ResumeCandidate
-      const active = index === this.selectedIndex
+      const active = index === candidateSelectedIndex
       const status = [
         candidate.disabledReason === 'current session' ? 'current' : undefined,
         candidate.record.live ? 'live' : undefined,

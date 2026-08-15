@@ -1505,14 +1505,14 @@ export function createTuiChat(
       handler: ({ rawInput }) => {
         const argument = rawInput.trim().toLocaleLowerCase()
         if (argument === '') {
-          resume.showResume()
+          resume.showAgentSwitch()
           return { kind: 'success' }
         }
         if (argument === 'new') {
           resume.newSession()
           return { kind: 'success' }
         }
-        return { kind: 'error', text: 'Usage: /agent [new] — open the session picker, or start a new conversation' }
+        return { kind: 'error', text: 'Usage: /agent [new] — open the conversation picker (with a "new" option), or start one directly' }
       },
     })
     commandCtx.commands.register({
