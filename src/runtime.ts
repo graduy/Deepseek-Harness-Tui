@@ -23,6 +23,12 @@ export interface TuiResumeHost {
    *   teardown.
    */
   handoff(sessionId: SessionId, cwd: string): Promise<never>
+  /**
+   * Dispose the current app and replace it with a fresh session in `cwd`
+   * (re-exec without `--resume`, so the app mints a new session id).
+   * @param cwd - the workspace the fresh session should run in.
+   */
+  handoffNew(cwd: string): Promise<never>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -99,6 +105,8 @@ export interface TuiRuntime {
   now?(): number
   /** Host-owned process handoff; absent leaves the session selectable but not resumable in place. */
   handoffResume?: TuiResumeHost['handoff']
+  /** Host-owned fresh-session handoff; absent disables starting a new conversation in place. */
+  handoffNew?: TuiResumeHost['handoffNew']
   /**
    * Line the host wants printed once the terminal is released on exit, such as
    * the command that resumes this session. Absent prints nothing. The host owns

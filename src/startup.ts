@@ -114,6 +114,23 @@ function installResumeHost(ctx: Context): void {
         process.exit(1)
       }
     },
+    async handoffNew(cwd): Promise<never> {
+      // Same atomic teardown, but no `--resume`: the fresh process mints its
+      // own session id in `cwd`.
+      try {
+        process.chdir(cwd)
+      } catch (error) {
+        throw new Error(`dsh-tui: cannot start a new conversation in "${cwd}": ${String(error)}`)
+      }
+      try {
+        await ctx.root.fiber.dispose()
+        execve(process.execPath, [process.execPath, ...process.execArgv, entry, ...baseArgs], process.env)
+        throw new Error('process replacement returned unexpectedly')
+      } catch (error) {
+        process.stderr.write(`dsh-tui: new-conversation handoff failed after terminal release: ${String(error)}\n`)
+        process.exit(1)
+      }
+    },
   }
   ctx.provide('tuiResumeHost', host)
 }

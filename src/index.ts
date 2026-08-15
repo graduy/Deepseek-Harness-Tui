@@ -1499,6 +1499,23 @@ export function createTuiChat(
       handler: () => { resume.showResume(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
+      name: 'agent',
+      description: 'Switch conversation in this workspace, or start a new one',
+      input: { hint: '[new]' },
+      handler: ({ rawInput }) => {
+        const argument = rawInput.trim().toLocaleLowerCase()
+        if (argument === '') {
+          resume.showResume()
+          return { kind: 'success' }
+        }
+        if (argument === 'new') {
+          resume.newSession()
+          return { kind: 'success' }
+        }
+        return { kind: 'error', text: 'Usage: /agent [new] — open the session picker, or start a new conversation' }
+      },
+    })
+    commandCtx.commands.register({
       name: 'status',
       description: 'Show session diagnostics, system prompt, and registered tools',
       handler: async ({ signal }) => { await showStatus(signal); return { kind: 'success' } },
@@ -2074,6 +2091,7 @@ export function apply(ctx: Context, config: Config): void {
     terminal: new ProcessTerminal(),
     exit: (code) => { disposeRootAndExit(ctx, code) },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
+    ...resumeHost === undefined ? {} : { handoffNew: (cwd) => resumeHost.handoffNew(cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })
 }

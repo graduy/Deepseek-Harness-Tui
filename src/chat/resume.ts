@@ -50,6 +50,8 @@ export interface ResumeControllerDeps extends ChatChannelDeps, ChannelNotice {
 export interface ResumeController {
   /** Open the searchable session selector, scoped to this workspace until the user widens it. */
   showResume(): void
+  /** Hand off to a fresh conversation in the current workspace (`/agent new`). */
+  newSession(): void
 }
 
 /**
@@ -279,7 +281,54 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
     }
   }
 
+  /**
+   * Hand off to a fresh conversation in the current workspace: flush the
+   * current session, release the terminal, and re-exec without `--resume` so
+   * the replacement process mints a new session id. Mirrors `handoffResume`
+   * but carries no target session to preflight.
+   */
+  const newSessionHandoff = async (): Promise<void> => {
+    if (resumeInFlight) return
+    resumeInFlight = true
+    let terminalReleased = false
+    try {
+      const handoffNew = runtime.handoffNew
+      if (handoffNew === undefined) {
+        deps.appendNotice('A new conversation cannot be started in this host.', 'warning')
+        return
+      }
+      if (agent.status !== 'idle') throw new Error('Starting a new conversation requires an idle agent.')
+      await ctx.sessions.flush(agent.session)
+      if (deps.isDisposed()) return
+      if (agent.status !== 'idle') throw new Error(`Starting a new conversation requires an idle agent (status: ${agent.status}).`)
+      await runtime.terminal.drainInput(100, 20)
+      if (deps.isDisposed()) return
+      ui.stop()
+      terminalReleased = true
+      await handoffNew(agent.session.header.cwd ?? process.cwd())
+      throw new Error('new-conversation host returned without replacing the process')
+    } catch (error: unknown) {
+      if (!deps.isDisposed()) {
+        if (terminalReleased) {
+          ui.start()
+          ui.setFocus(editor)
+        }
+        deps.appendNotice(`New conversation failed: ${errorChain(error)}`, 'error')
+      }
+    } finally {
+      resumeInFlight = false
+    }
+  }
+
   return {
+    newSession(): void {
+      if (resumeInFlight) return
+      if (agent.status !== 'idle') {
+        deps.appendNotice('Start a new conversation after the current turn finishes or is cancelled.', 'warning')
+        return
+      }
+      void newSessionHandoff()
+    },
     showResume(): void {
       if (agent.status !== 'idle') {
         deps.appendNotice('Resume requires the current turn to finish or be cancelled first.', 'warning')

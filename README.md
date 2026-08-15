@@ -13,6 +13,7 @@
 - **输入框固定底部**：上下两条横线框住，随窗口高度自适应。
 - **底部状态栏**：左侧 `模型 · 思考强度`（**可点击原地切换**），右下角显示当前打开文件的文件名。
 - **IDE 集成**：识别 VS Code / Cursor，右下角显示当前打开的文件名（配合 `ide-extension`）。
+- **多会话切换 `/agent`**：`/agent` 列出当前工作区的历史会话，`/agent new` 开新会话，方便按任务隔离上下文。
 
 ## 安装
 
@@ -59,7 +60,7 @@ cd ide-extension
 - `Esc` 取消当前轮；`Ctrl+C` 取消/清空/退出；`Ctrl+D` 退出
 - `Ctrl+O` 循环工具卡片（折叠/展开/隐藏）；`Ctrl+R` 循环思考；`Ctrl+L` 重绘
 - 左键点击：状态栏模型/思考强度原地切换；其它区域折叠/展开思考
-- 斜杠命令：`/model` `/resume` `/compact` `/details` `/help` `/palette` `/status` `/skill:<name>` …
+- 斜杠命令：`/model` `/agent` `/resume` `/compact` `/details` `/help` `/palette` `/status` `/skill:<name>` …
 
 ## 出处与许可
 
@@ -84,6 +85,7 @@ terminal UI for DeepSeek Harness. It is an out-of-tree dsh bundle layered over t
 - **Input pinned to the bottom**: framed by two horizontal rules, adapting to window height.
 - **Bottom status bar**: `model · reasoning effort` on the left (**clickable in-place switching**), current file name in the bottom-right corner.
 - **IDE integration**: detects VS Code / Cursor and shows the currently open file name (with `ide-extension`).
+- **Multi-session switching `/agent`**: `/agent` lists past sessions in this workspace, `/agent new` starts a fresh one — isolate context per task.
 
 ## Install
 
@@ -133,7 +135,7 @@ terminal; the current file name appears in the bottom-right corner.
 - `Esc` cancel turn; `Ctrl+C` cancel / clear / exit; `Ctrl+D` exit
 - `Ctrl+O` cycle tool cards (collapse/expand/hide); `Ctrl+R` cycle reasoning; `Ctrl+L` redraw
 - Left click: switch model / reasoning effort on the status bar; toggle reasoning elsewhere
-- Slash commands: `/model` `/resume` `/compact` `/details` `/help` `/palette` `/status` `/skill:<name>` …
+- Slash commands: `/model` `/agent` `/resume` `/compact` `/details` `/help` `/palette` `/status` `/skill:<name>` …
 
 ## Provenance & license
 
